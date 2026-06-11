@@ -1,0 +1,133 @@
+{
+  "name": "WA - Candidate CV Received",
+  "_meta": {
+    "version": "1.0",
+    "description": "Send WhatsApp candidate_cv_received template when a new candidate is created in Firestore. Fires on candidates/{id} document create.",
+    "deployment": "Import into n8n: Workflows > Import from File. Set SR_PROXY_SECRET env var before activating.",
+    "decisions": "Uses Sunrise WABA, utility category template, requires whatsapp_optin.status === 'active'"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "documentAddedToCollection",
+        "collection": "candidates",
+        "options": {}
+      },
+      "id": "trigger-firestore-new-candidate",
+      "name": "On New Candidate",
+      "type": "n8n-nodes-base.googleFirestoreTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "firestore-cp4u",
+          "name": "CP4U Firestore"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-phone",
+              "leftValue": "={{ $json.phone }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            },
+            {
+              "id": "has-firstname",
+              "leftValue": "={{ $json.firstName }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-has-phone",
+      "name": "Has Phone + Name?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize phone to E.164 (Malaysia / Singapore aware)\nconst raw = $json.phone;\nlet s = String(raw).replace(/[\\s\\-\\(\\)]/g, '');\n\nlet e164;\nif (s.startsWith('+')) {\n  e164 = s;\n} else if (s.startsWith('0')) {\n  e164 = '+6' + s; // MY mobile starting with 0\n} else if (s.startsWith('60') || s.startsWith('65')) {\n  e164 = '+' + s;\n} else {\n  e164 = '+' + s;\n}\n\nif (!/^\\+\\d{8,15}$/.test(e164)) {\n  throw new Error(`Invalid phone format: ${raw}`);\n}\n\nreturn {\n  ...$json,\n  phoneE164: e164,\n  language: ($json.locale === 'zh') ? 'zh_CN' : 'en'\n};"
+      },
+      "id": "normalize-phone",
+      "name": "Normalize Phone + Locale",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SR_PROXY_URL }}/proxy/whatsapp/send",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-proxy-secret", "value": "={{ $env.SR_PROXY_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  to: $json.phoneE164,\n  templateName: 'candidate_cv_received',\n  language: $json.language,\n  templateCategory: 'utility',\n  variables: [$json.firstName],\n  actorUserId: 'system',\n  actorRole: 'n8n',\n  relatedEntityType: 'candidate',\n  relatedEntityId: $json.candidateId || $json.id\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "redirect": { "redirect": {} },
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "send-whatsapp",
+      "name": "Send via sr-proxy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 240],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "noop-no-phone",
+      "name": "Skip (no phone)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [680, 380]
+    }
+  ],
+  "connections": {
+    "On New Candidate": {
+      "main": [[{ "node": "Has Phone + Name?", "type": "main", "index": 0 }]]
+    },
+    "Has Phone + Name?": {
+      "main": [
+        [{ "node": "Normalize Phone + Locale", "type": "main", "index": 0 }],
+        [{ "node": "Skip (no phone)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize Phone + Locale": {
+      "main": [[{ "node": "Send via sr-proxy", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "timezone": "Asia/Kuala_Lumpur"
+  },
+  "tags": [
+    { "name": "whatsapp" },
+    { "name": "candidate" },
+    { "name": "auto-send" }
+  ]
+}

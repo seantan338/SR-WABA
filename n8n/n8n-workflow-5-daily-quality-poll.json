@@ -1,0 +1,148 @@
+{
+  "name": "WA - Daily Quality + Tier Poll",
+  "_meta": {
+    "version": "1.0",
+    "description": "Daily cron at 08:00 MYT. Polls Meta API via sr-proxy for current quality rating + tier, writes snapshot to Firestore, sends Slack/email alert if Yellow or Red. Lightweight ops hygiene.",
+    "deployment": "Import + activate. Slack webhook optional — remove the Slack node if not using Slack."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Daily 08:00 MYT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SR_PROXY_URL }}/proxy/whatsapp/quality",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-proxy-secret", "value": "={{ $env.SR_PROXY_SECRET }}" }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "fetch-quality",
+      "name": "Fetch Quality + Tier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "needs-alert",
+              "leftValue": "={{ $json.qualityRating }}",
+              "rightValue": "green",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ]
+        }
+      },
+      "id": "filter-not-green",
+      "name": "Quality Not Green?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconst urgency = data.qualityRating === 'red' ? '🚨 RED' : '⚠️ YELLOW';\n\nconst message = `${urgency} - WhatsApp Quality Alert\\n\\n` +\n  `Phone: ${data.phoneNumberId}\\n` +\n  `Rating: ${data.qualityRating.toUpperCase()}\\n` +\n  `Tier: ${data.messagingLimitTier}\\n\\n` +\n  (data.qualityRating === 'red'\n    ? 'ACTION: All outbound is now halted. Review whatsapp_send_log for recent failures. Check whatsapp_incoming for user complaints.'\n    : 'ACTION: Slow down outbound. Review template content. Halt marketing-category sends if any.');\n\nreturn { alertMessage: message, ...data };"
+      },
+      "id": "build-alert",
+      "name": "Build Alert Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_ALERTS_WEBHOOK }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: $json.alertMessage,\n  channel: '#cp4u-alerts'\n}) }}",
+        "options": {
+          "timeout": 10000,
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "slack-alert",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 140],
+      "continueOnFail": true,
+      "_note": "Optional. Remove if not using Slack. Set SLACK_ALERTS_WEBHOOK env var."
+    },
+    {
+      "parameters": {
+        "fromEmail": "alerts@sunriserecruit.com",
+        "toEmail": "={{ $env.SEAN_EMAIL }}",
+        "subject": "={{ '[CP4U] WhatsApp ' + $json.qualityRating.toUpperCase() + ' Alert' }}",
+        "emailType": "text",
+        "text": "={{ $json.alertMessage }}",
+        "options": {}
+      },
+      "id": "email-alert",
+      "name": "Email Sean",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1120, 260],
+      "continueOnFail": true,
+      "credentials": {
+        "smtp": {
+          "id": "smtp-resend",
+          "name": "Resend SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 08:00 MYT": {
+      "main": [[{ "node": "Fetch Quality + Tier", "type": "main", "index": 0 }]]
+    },
+    "Fetch Quality + Tier": {
+      "main": [[{ "node": "Quality Not Green?", "type": "main", "index": 0 }]]
+    },
+    "Quality Not Green?": {
+      "main": [[{ "node": "Build Alert Text", "type": "main", "index": 0 }], []]
+    },
+    "Build Alert Text": {
+      "main": [
+        [
+          { "node": "Post to Slack", "type": "main", "index": 0 },
+          { "node": "Email Sean", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "timezone": "Asia/Kuala_Lumpur"
+  },
+  "tags": [
+    { "name": "whatsapp" },
+    { "name": "ops" },
+    { "name": "cron" }
+  ]
+}

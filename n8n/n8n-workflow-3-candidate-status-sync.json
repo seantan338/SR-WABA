@@ -1,0 +1,197 @@
+{
+  "name": "WA - Candidate Status Sync",
+  "_meta": {
+    "version": "1.0",
+    "description": "Listen for Firestore changes on jobs/{jobId}/notes/{noteId}. When stage changes to Interviewing, Offer Out, or Filled, send appropriate WhatsApp template. Single workflow handles 3 templates via branching.",
+    "templatesUsed": ["candidate_interview_invite", "candidate_offer_notification", "candidate_placement_confirmed"],
+    "deployment": "Import + activate. Requires Firestore field 'stage' on note document; fetches candidate phone from candidates/{candidateId}."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "documentUpdatedInCollection",
+        "collection": "jobs/{{ JOB_ID }}/notes",
+        "options": {}
+      },
+      "id": "trigger-note-updated",
+      "name": "On Note Stage Change",
+      "type": "n8n-nodes-base.googleFirestoreTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "firestore-cp4u",
+          "name": "CP4U Firestore"
+        }
+      },
+      "_setupNote": "Configure to listen on collection group 'notes' if your Firestore SDK supports it. Otherwise use a Firestore Cloud Function to push to webhook."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "stage-changed",
+              "leftValue": "={{ $json.stage }}",
+              "rightValue": "={{ $json._previousStage }}",
+              "operator": { "type": "string", "operation": "notEquals" }
+            },
+            {
+              "id": "stage-triggers-wa",
+              "leftValue": "={{ $json.stage }}",
+              "rightValue": "Interviewing,Offer Out,Filled",
+              "operator": { "type": "string", "operation": "contains" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-stage-change",
+      "name": "Stage Changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "get",
+        "collection": "candidates",
+        "documentId": "={{ $json.candidateId }}",
+        "options": {}
+      },
+      "id": "fetch-candidate",
+      "name": "Fetch Candidate",
+      "type": "n8n-nodes-base.googleFirestore",
+      "typeVersion": 1,
+      "position": [680, 240],
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "firestore-cp4u",
+          "name": "CP4U Firestore"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "get",
+        "collection": "jobs",
+        "documentId": "={{ $json.jobId }}",
+        "options": {}
+      },
+      "id": "fetch-job",
+      "name": "Fetch Job",
+      "type": "n8n-nodes-base.googleFirestore",
+      "typeVersion": 1,
+      "position": [900, 240],
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "firestore-cp4u",
+          "name": "CP4U Firestore"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine note + candidate + job data, normalize phone, pick template\nconst note = $('On Note Stage Change').first().json;\nconst candidate = $('Fetch Candidate').first().json;\nconst job = $('Fetch Job').first().json;\n\nif (!candidate.phone) {\n  return { skip: true, reason: 'no_candidate_phone' };\n}\n\nlet s = String(candidate.phone).replace(/[\\s\\-\\(\\)]/g, '');\nlet e164;\nif (s.startsWith('+')) e164 = s;\nelse if (s.startsWith('0')) e164 = '+6' + s;\nelse if (s.startsWith('60') || s.startsWith('65')) e164 = '+' + s;\nelse e164 = '+' + s;\n\nif (!/^\\+\\d{8,15}$/.test(e164)) return { skip: true, reason: 'invalid_phone' };\n\nconst firstName = (candidate.firstName || candidate.name || 'there').split(' ')[0];\nconst language = candidate.locale === 'zh' ? 'zh_CN' : 'en';\n\n// Template selection by stage\nlet templateName, variables;\nswitch (note.stage) {\n  case 'Interviewing':\n    templateName = 'candidate_interview_invite';\n    // Note: requires note to have interviewDate, interviewTime, interviewFormat\n    variables = [\n      firstName,\n      job.title || 'the role',\n      note.interviewDate || 'TBC',\n      note.interviewTime || 'TBC',\n      note.interviewFormat || 'In-person'\n    ];\n    break;\n  case 'Offer Out':\n    templateName = 'candidate_offer_notification';\n    variables = [firstName, job.title || 'the role'];\n    break;\n  case 'Filled':\n    templateName = 'candidate_placement_confirmed';\n    variables = [firstName, job.title || 'the role'];\n    break;\n  default:\n    return { skip: true, reason: `stage_no_template:${note.stage}` };\n}\n\nreturn {\n  phoneE164: e164,\n  templateName,\n  language,\n  variables,\n  candidateId: candidate.id || note.candidateId,\n  jobId: job.id || note.jobId\n};"
+      },
+      "id": "build-payload",
+      "name": "Build WA Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "not-skipped",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": "true",
+              "operator": { "type": "boolean", "operation": "false" }
+            }
+          ]
+        }
+      },
+      "id": "filter-not-skipped",
+      "name": "Skip Flagged?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SR_PROXY_URL }}/proxy/whatsapp/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-proxy-secret", "value": "={{ $env.SR_PROXY_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  to: $json.phoneE164,\n  templateName: $json.templateName,\n  language: $json.language,\n  templateCategory: 'utility',\n  variables: $json.variables,\n  actorUserId: 'system',\n  actorRole: 'n8n',\n  relatedEntityType: 'candidate',\n  relatedEntityId: $json.candidateId\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "send-wa",
+      "name": "Send via sr-proxy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 180],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "noop",
+      "name": "Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1560, 320]
+    }
+  ],
+  "connections": {
+    "On Note Stage Change": {
+      "main": [[{ "node": "Stage Changed?", "type": "main", "index": 0 }]]
+    },
+    "Stage Changed?": {
+      "main": [
+        [{ "node": "Fetch Candidate", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Fetch Candidate": {
+      "main": [[{ "node": "Fetch Job", "type": "main", "index": 0 }]]
+    },
+    "Fetch Job": {
+      "main": [[{ "node": "Build WA Payload", "type": "main", "index": 0 }]]
+    },
+    "Build WA Payload": {
+      "main": [[{ "node": "Skip Flagged?", "type": "main", "index": 0 }]]
+    },
+    "Skip Flagged?": {
+      "main": [
+        [{ "node": "Send via sr-proxy", "type": "main", "index": 0 }],
+        [{ "node": "Skip", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "timezone": "Asia/Kuala_Lumpur"
+  },
+  "tags": [
+    { "name": "whatsapp" },
+    { "name": "candidate" },
+    { "name": "status-sync" }
+  ]
+}

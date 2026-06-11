@@ -1,0 +1,123 @@
+{
+  "name": "WA - Client JD Received",
+  "_meta": {
+    "version": "1.0",
+    "description": "Send WhatsApp client_jd_received template when a new job document is created in Firestore. Fires on jobs/{id} document create.",
+    "deployment": "Import into n8n. Set SR_PROXY_SECRET + SR_PROXY_URL env vars."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "documentAddedToCollection",
+        "collection": "jobs",
+        "options": {}
+      },
+      "id": "trigger-new-job",
+      "name": "On New Job",
+      "type": "n8n-nodes-base.googleFirestoreTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "firestore-cp4u",
+          "name": "CP4U Firestore"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-client-phone",
+              "leftValue": "={{ $json.clientContactPhone }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            },
+            {
+              "id": "has-title",
+              "leftValue": "={{ $json.title }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-has-data",
+      "name": "Has Client Phone + Title?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.clientContactPhone;\nlet s = String(raw).replace(/[\\s\\-\\(\\)]/g, '');\n\nlet e164;\nif (s.startsWith('+')) e164 = s;\nelse if (s.startsWith('0')) e164 = '+6' + s;\nelse if (s.startsWith('60') || s.startsWith('65')) e164 = '+' + s;\nelse e164 = '+' + s;\n\nif (!/^\\+\\d{8,15}$/.test(e164)) throw new Error(`Invalid phone: ${raw}`);\n\n// First name extraction\nconst fullName = $json.clientContactName || $json.clientContactFirstName || 'there';\nconst firstName = fullName.split(' ')[0];\n\nreturn {\n  ...$json,\n  phoneE164: e164,\n  firstName,\n  language: 'en'\n};"
+      },
+      "id": "normalize",
+      "name": "Normalize Phone + Name",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SR_PROXY_URL }}/proxy/whatsapp/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-proxy-secret", "value": "={{ $env.SR_PROXY_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  to: $json.phoneE164,\n  templateName: 'client_jd_received',\n  language: 'en',\n  templateCategory: 'utility',\n  variables: [$json.firstName, $json.title],\n  actorUserId: 'system',\n  actorRole: 'n8n',\n  relatedEntityType: 'job',\n  relatedEntityId: $json.jobId || $json.id\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "send-wa",
+      "name": "Send via sr-proxy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 240],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "noop",
+      "name": "Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [680, 380]
+    }
+  ],
+  "connections": {
+    "On New Job": {
+      "main": [[{ "node": "Has Client Phone + Title?", "type": "main", "index": 0 }]]
+    },
+    "Has Client Phone + Title?": {
+      "main": [
+        [{ "node": "Normalize Phone + Name", "type": "main", "index": 0 }],
+        [{ "node": "Skip", "type": "main", "index": 0 }]
+      ]
+    },
+    "Normalize Phone + Name": {
+      "main": [[{ "node": "Send via sr-proxy", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "timezone": "Asia/Kuala_Lumpur"
+  },
+  "tags": [
+    { "name": "whatsapp" },
+    { "name": "client" },
+    { "name": "auto-send" }
+  ]
+}

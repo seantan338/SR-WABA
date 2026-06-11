@@ -1,0 +1,180 @@
+{
+  "_meta": {
+    "description": "WhatsApp Cloud API template submission spec for CP4U / Sunrise Recruit",
+    "version": "1.1",
+    "decisions": {
+      "wabaOwner": "Sunrise Recruit Sdn Bhd",
+      "marketingTemplate": "REMOVED — see analysis. Sprint 4+ re-evaluation.",
+      "templateCount": 8
+    },
+    "submitVia": "Meta Business Manager > WhatsApp Manager > Message Templates > Create Template",
+    "apiSubmit": "POST https://graph.facebook.com/v21.0/{WABA_ID}/message_templates",
+    "note": "For bilingual templates, submit TWO separate templates with same `name`, different `language` code."
+  },
+  "templates": [
+    {
+      "name": "candidate_cv_received",
+      "category": "UTILITY",
+      "languages": ["en", "zh_CN"],
+      "components": {
+        "en": [
+          {
+            "type": "BODY",
+            "text": "Hi {{1}},\n\nThanks for sending your CV to Sunrise Recruit. We've added you to our talent database.\n\nOur consultants will be in touch when a suitable role opens up. You can also explore live openings at https://www.sunriserecruit.com/jobs\n\nIf you'd prefer not to receive updates, reply STOP.\n\n— The Sunrise Recruit Team",
+            "example": { "body_text": [["Sean"]] }
+          },
+          { "type": "FOOTER", "text": "Sunrise Recruit | Connecting People for You" }
+        ],
+        "zh_CN": [
+          {
+            "type": "BODY",
+            "text": "{{1}}，您好。\n\n感谢您将简历发送给 Sunrise Recruit，我们已经将您加入人才库。\n\n当有合适的职位时，我们的顾问会主动联系您。您也可以浏览当前职位空缺：https://www.sunriserecruit.com/jobs\n\n如不希望收到更新，请回复 STOP。\n\n— Sunrise Recruit 团队",
+            "example": { "body_text": [["志强"]] }
+          },
+          { "type": "FOOTER", "text": "Sunrise Recruit | 为您连接人才" }
+        ]
+      }
+    },
+    {
+      "name": "candidate_interview_invite",
+      "category": "UTILITY",
+      "languages": ["en", "zh_CN"],
+      "components": {
+        "en": [
+          {
+            "type": "BODY",
+            "text": "Hi {{1}},\n\nGood news — you've been shortlisted for an interview.\n\nPosition: {{2}}\nDate: {{3}}\nTime: {{4}}\nFormat: {{5}}\n\nPlease reply YES to confirm or contact your consultant if you need to reschedule.\n\n— Sunrise Recruit",
+            "example": { "body_text": [["Sean", "Senior Software Engineer", "Mon, 3 Jun 2026", "10:30 AM MYT", "Zoom call"]] }
+          }
+        ],
+        "zh_CN": [
+          {
+            "type": "BODY",
+            "text": "{{1}}，您好。\n\n好消息 — 您已被选中参加面试。\n\n职位：{{2}}\n日期：{{3}}\n时间：{{4}}\n形式：{{5}}\n\n请回复 YES 确认，或联系您的顾问以重新安排时间。\n\n— Sunrise Recruit",
+            "example": { "body_text": [["志强", "高级软件工程师", "2026年6月3日 周一", "上午10:30", "Zoom 视频通话"]] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "candidate_offer_notification",
+      "category": "UTILITY",
+      "languages": ["en", "zh_CN"],
+      "components": {
+        "en": [
+          {
+            "type": "BODY",
+            "text": "Hi {{1}},\n\nAn offer is being prepared for you for the {{2}} role at our client.\n\nYour consultant will reach out shortly with the full details. Please keep this number reachable today.\n\n— Sunrise Recruit",
+            "example": { "body_text": [["Sean", "Senior Software Engineer"]] }
+          }
+        ],
+        "zh_CN": [
+          {
+            "type": "BODY",
+            "text": "{{1}}，您好。\n\n针对客户的 {{2}} 职位，我们正在为您准备 offer。\n\n您的顾问稍后会与您联系，告知完整细节。请保持此号码畅通。\n\n— Sunrise Recruit",
+            "example": { "body_text": [["志强", "高级软件工程师"]] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "candidate_placement_confirmed",
+      "category": "UTILITY",
+      "languages": ["en", "zh_CN"],
+      "components": {
+        "en": [
+          {
+            "type": "BODY",
+            "text": "Hi {{1}},\n\nCongratulations on your new role as {{2}}.\n\nWe'll be in touch in your first month to make sure everything's going smoothly. If you know someone who'd be a good candidate for our other roles, your referrals are always welcome.\n\n— Sunrise Recruit",
+            "example": { "body_text": [["Sean", "Senior Software Engineer"]] }
+          }
+        ],
+        "zh_CN": [
+          {
+            "type": "BODY",
+            "text": "{{1}}，恭喜您！\n\n祝贺您获得 {{2}} 这份新工作。\n\n入职后第一个月，我们会主动联系您确认一切顺利。如果您身边有合适的朋友推荐给我们其他职位，我们随时欢迎。\n\n— Sunrise Recruit",
+            "example": { "body_text": [["志强", "高级软件工程师"]] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "client_jd_received",
+      "category": "UTILITY",
+      "languages": ["en"],
+      "components": {
+        "en": [
+          {
+            "type": "BODY",
+            "text": "Hi {{1}},\n\nWe've received your job order for {{2}}. Our consultants are reviewing the brief and will start sourcing immediately.\n\nYou can track candidate submissions live at https://www.sunriserecruit.com/employer/jobs\n\n— Sunrise Recruit",
+            "example": { "body_text": [["Linda", "Production Manager"]] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "client_candidate_submitted",
+      "category": "UTILITY",
+      "languages": ["en"],
+      "components": {
+        "en": [
+          {
+            "type": "BODY",
+            "text": "Hi {{1}},\n\nWe've submitted {{2}} candidate(s) for your {{3}} role.\n\nReview and provide feedback in your portal: https://www.sunriserecruit.com/employer/jobs/{{4}}\n\n— Sunrise Recruit",
+            "example": { "body_text": [["Linda", "3", "Production Manager", "production-manager-pg-001"]] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "partner_referral_status_update",
+      "category": "UTILITY",
+      "languages": ["en", "zh_CN"],
+      "components": {
+        "en": [
+          {
+            "type": "BODY",
+            "text": "Hi {{1}},\n\nUpdate on your referral {{2}} for the {{3}} role:\n\nStatus: {{4}}\n\nView full details: https://www.sunriserecruit.com/partner/referrals\n\n— Sunrise Recruit | Dollarize Partner Network",
+            "example": { "body_text": [["Alex", "Tan W** S***", "Senior Software Engineer", "Interviewing"]] }
+          }
+        ],
+        "zh_CN": [
+          {
+            "type": "BODY",
+            "text": "{{1}}，您好。\n\n您推荐的候选人 {{2}}（{{3}} 职位）状态更新：\n\n当前状态：{{4}}\n\n查看完整信息：https://www.sunriserecruit.com/partner/referrals\n\n— Sunrise Recruit | Dollarize 合作伙伴网络",
+            "example": { "body_text": [["建华", "陈 W** S***", "高级软件工程师", "面试中"]] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "verification_otp",
+      "category": "AUTHENTICATION",
+      "languages": ["en"],
+      "_authNote": "Authentication templates use Meta's preset format. Configure via Business Manager UI: select 'Authentication' category, enable 'One-tap autofill' button. Body text is fixed by Meta — you only configure code length and button.",
+      "components": {
+        "en": [
+          {
+            "type": "BODY",
+            "add_security_recommendation": true,
+            "example": { "body_text": [["123456"]] }
+          },
+          {
+            "type": "FOOTER",
+            "code_expiration_minutes": 10
+          },
+          {
+            "type": "BUTTONS",
+            "buttons": [
+              {
+                "type": "OTP",
+                "otp_type": "COPY_CODE",
+                "text": "Copy code"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

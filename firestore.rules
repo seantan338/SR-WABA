@@ -1,0 +1,69 @@
+// firestore.rules
+// WhatsApp collections — server-only writes (Admin SDK bypasses these rules).
+//
+// INTEGRATION NOTE: This file reproduces ONLY the WhatsApp-related rules plus the
+// shared helper functions. In SR-Web-AS, APPEND the five `match` blocks below into
+// the existing `match /databases/{database}/documents { ... }` block, and add the
+// helper functions only if they are not already present. Do NOT replace the
+// existing rules file wholesale.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // === Helper functions (add only if not already defined) ===
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function isManager() {
+      return isSignedIn() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'manager'];
+    }
+
+    // === WhatsApp collections — server-only writes ===
+
+    match /whatsapp_optin/{phoneE164} {
+      // Read: admin can read all; user can read their own
+      allow read: if isAdmin() ||
+                   (isSignedIn() && resource.data.userId == request.auth.uid);
+      // Write: never from client. Admin SDK only (which bypasses these rules).
+      allow write: if false;
+    }
+
+    match /whatsapp_send_log/{logId} {
+      // Read: admin + manager only — this is sensitive operational data
+      allow read: if isAdmin() || isManager();
+      allow write: if false;
+    }
+
+    match /whatsapp_quality/{snapshotId} {
+      // Read: admin + manager
+      allow read: if isAdmin() || isManager();
+      allow write: if false;
+    }
+
+    match /whatsapp_incoming/{msgId} {
+      // Read: admin only — incoming messages may contain candidate info
+      allow read: if isAdmin();
+      // Create / delete: never from client (Admin SDK only)
+      allow create, delete: if false;
+      // Update (TASK 6b): Admin + Manager may set Team Inbox assignment / resolution
+      // fields ONLY. All other field writes remain server-side.
+      allow update: if isManager() &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['assignedTo', 'resolved', 'resolvedAt', 'resolvedByUserId']);
+    }
+
+    match /whatsapp_templates/{templateName} {
+      // Read: all authenticated users (UI needs to know what's available)
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+  }
+}

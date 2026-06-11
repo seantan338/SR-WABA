@@ -1,0 +1,61 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "whatsapp_send_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "whatsapp_send_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "phoneE164", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "whatsapp_send_log",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "relatedEntityType", "order": "ASCENDING" },
+        { "fieldPath": "relatedEntityId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "whatsapp_quality",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "capturedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "whatsapp_optin",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "marketingOptin", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "whatsapp_incoming",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "phoneE164", "order": "ASCENDING" },
+        { "fieldPath": "receivedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "whatsapp_incoming",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "resolved", "order": "ASCENDING" },
+        { "fieldPath": "receivedAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

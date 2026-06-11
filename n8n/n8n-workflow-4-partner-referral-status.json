@@ -1,0 +1,192 @@
+{
+  "name": "WA - Partner Referral Status",
+  "_meta": {
+    "version": "1.0",
+    "description": "When a referral document's status changes, notify the referring Partner via WhatsApp. Uses partner_referral_status_update template (bilingual).",
+    "deployment": "Import + activate. Requires Firestore referrals collection with: partnerId, candidateMaskedName, status fields."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "triggerOn": "documentUpdatedInCollection",
+        "collection": "referrals",
+        "options": {}
+      },
+      "id": "trigger-referral-updated",
+      "name": "On Referral Update",
+      "type": "n8n-nodes-base.googleFirestoreTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "firestore-cp4u",
+          "name": "CP4U Firestore"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "status-actually-changed",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "={{ $json._previousStatus }}",
+              "operator": { "type": "string", "operation": "notEquals" }
+            },
+            {
+              "id": "is-trigger-status",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "submitted,employer_viewed,in_process,hired,not_hired",
+              "operator": { "type": "string", "operation": "contains" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "filter-status-change",
+      "name": "Status Changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "get",
+        "collection": "partners",
+        "documentId": "={{ $json.partnerId }}",
+        "options": {}
+      },
+      "id": "fetch-partner",
+      "name": "Fetch Partner",
+      "type": "n8n-nodes-base.googleFirestore",
+      "typeVersion": 1,
+      "position": [680, 240],
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "firestore-cp4u",
+          "name": "CP4U Firestore"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "operation": "get",
+        "collection": "jobs",
+        "documentId": "={{ $json.jobId }}",
+        "options": {}
+      },
+      "id": "fetch-job",
+      "name": "Fetch Job",
+      "type": "n8n-nodes-base.googleFirestore",
+      "typeVersion": 1,
+      "position": [900, 240],
+      "credentials": {
+        "googleFirebaseCloudFirestoreOAuth2Api": {
+          "id": "firestore-cp4u",
+          "name": "CP4U Firestore"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const referral = $('On Referral Update').first().json;\nconst partner = $('Fetch Partner').first().json;\nconst job = $('Fetch Job').first().json;\n\nif (!partner.phone) return { skip: true, reason: 'no_partner_phone' };\n\nlet s = String(partner.phone).replace(/[\\s\\-\\(\\)]/g, '');\nlet e164;\nif (s.startsWith('+')) e164 = s;\nelse if (s.startsWith('0')) e164 = '+6' + s;\nelse if (s.startsWith('60') || s.startsWith('65')) e164 = '+' + s;\nelse e164 = '+' + s;\nif (!/^\\+\\d{8,15}$/.test(e164)) return { skip: true, reason: 'invalid_phone' };\n\nconst firstName = (partner.firstName || partner.displayName || 'there').split(' ')[0];\nconst language = partner.locale === 'zh' ? 'zh_CN' : 'en';\n\n// Status label mapping (EN + ZH)\nconst statusLabels = {\n  en: {\n    submitted: 'Submitted', employer_viewed: 'Viewed by employer',\n    in_process: 'In process', hired: 'Hired', not_hired: 'Not selected'\n  },\n  zh_CN: {\n    submitted: '已提交', employer_viewed: '雇主已查看',\n    in_process: '处理中', hired: '已录用', not_hired: '未选中'\n  }\n};\n\nconst statusLabel = (statusLabels[language] || statusLabels.en)[referral.status] || referral.status;\n\nreturn {\n  phoneE164: e164,\n  language,\n  variables: [\n    firstName,\n    referral.candidateMaskedName || 'your candidate',\n    job.title || 'the role',\n    statusLabel\n  ],\n  partnerId: partner.id || referral.partnerId,\n  referralId: referral.id\n};"
+      },
+      "id": "build-payload",
+      "name": "Build WA Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "not-skipped",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": "true",
+              "operator": { "type": "boolean", "operation": "false" }
+            }
+          ]
+        }
+      },
+      "id": "filter-not-skipped",
+      "name": "Skip Flagged?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SR_PROXY_URL }}/proxy/whatsapp/send",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-proxy-secret", "value": "={{ $env.SR_PROXY_SECRET }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  to: $json.phoneE164,\n  templateName: 'partner_referral_status_update',\n  language: $json.language,\n  templateCategory: 'utility',\n  variables: $json.variables,\n  actorUserId: 'system',\n  actorRole: 'n8n',\n  relatedEntityType: 'referral',\n  relatedEntityId: $json.referralId\n}) }}",
+        "options": {
+          "timeout": 15000,
+          "response": { "response": { "neverError": true } }
+        }
+      },
+      "id": "send-wa",
+      "name": "Send via sr-proxy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 180],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {},
+      "id": "noop",
+      "name": "Skip",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1560, 320]
+    }
+  ],
+  "connections": {
+    "On Referral Update": {
+      "main": [[{ "node": "Status Changed?", "type": "main", "index": 0 }]]
+    },
+    "Status Changed?": {
+      "main": [[{ "node": "Fetch Partner", "type": "main", "index": 0 }], []]
+    },
+    "Fetch Partner": {
+      "main": [[{ "node": "Fetch Job", "type": "main", "index": 0 }]]
+    },
+    "Fetch Job": {
+      "main": [[{ "node": "Build WA Payload", "type": "main", "index": 0 }]]
+    },
+    "Build WA Payload": {
+      "main": [[{ "node": "Skip Flagged?", "type": "main", "index": 0 }]]
+    },
+    "Skip Flagged?": {
+      "main": [
+        [{ "node": "Send via sr-proxy", "type": "main", "index": 0 }],
+        [{ "node": "Skip", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "timezone": "Asia/Kuala_Lumpur"
+  },
+  "tags": [
+    { "name": "whatsapp" },
+    { "name": "partner" },
+    { "name": "status-sync" }
+  ]
+}
