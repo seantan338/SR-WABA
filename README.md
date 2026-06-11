@@ -29,10 +29,10 @@ docs/                               firestore-schema.md, optin-flow.md, deployme
 | 0 — Read pre-written files | ✅ | All kit files read; this build matches them. |
 | 1 — Mount wa-proxy | ✅ (staged) | `wa-proxy.js` + reference `index.js`. Copy into real sr-proxy; see *Integration* below. |
 | 2 — Firestore schema | ✅ | types / rules / indexes / backfill script all produced. |
-| 3 — OptInBlock in signup forms | ⏸ **paused** | Needs `WhatsAppOptInBlock.tsx` (not yet uploaded). |
-| 4 — ConsentSettings on settings pages | ⏸ **paused** | Needs `WhatsAppConsentSettings.tsx` (not yet uploaded). |
-| 5 — QualityTile on admin dashboard | ⏸ **paused** | Needs `WhatsAppQualityTile.tsx` (not yet uploaded). |
-| 6a — send-freeform + conversation routes | ✅ | Added to `wa-proxy.js` with `requireAuth` (proxy secret OR Firebase ID token). |
+| 3 — OptInBlock in signup forms | ✅ | `WhatsAppOptInBlock.tsx` authored from `optin-flow.md` + canonical `CandidateSignup` wiring example. |
+| 4 — ConsentSettings on settings pages | ✅ | `WhatsAppConsentSettings.tsx` + reusable `SettingsNotificationsSection`. |
+| 5 — QualityTile on admin dashboard | ✅ | `WhatsAppQualityTile.tsx` + `AdminDashboard` stub. |
+| 6a — send-freeform + conversation + optin routes | ✅ | Added to `wa-proxy.js` with `requireAuth` (admin/manager) and `requireOptinAuth` (any signed-in user). |
 | 6b — whatsapp_incoming inbox fields | ✅ | `assignedTo / resolved / resolvedAt / resolvedByUserId` + update rule. |
 | 6c — Team Inbox UI | ✅ | `WhatsAppInbox.tsx`. |
 | 7 — Navigation entry | ✅ (snippet) | See below — wire into the real admin sidebar. |
@@ -70,16 +70,40 @@ docs/                               firestore-schema.md, optin-flow.md, deployme
 ```
 Get `unresolvedCount` via `onSnapshot(query(collection(db,'whatsapp_incoming'), where('resolved','==',false)))`.
 
-## Known design notes / decisions to confirm
+### TASK 3 / 4 — wiring the consent components into real forms
+`CandidateSignup.tsx` is the canonical example. The other four sources are the same
+wiring with a different `source` prop:
 
-- **Manager access vs. `whatsapp_incoming` read rule.** The brief says incoming reads stay
-  *admin-only* (TASK 6b), but the Inbox is for **Admin + Manager** and uses a client
-  `onSnapshot` on `whatsapp_incoming` for the live list. As written, a Manager's list query
-  will be denied. To support Managers, relax that `read` rule from `isAdmin()` to
-  `isManager()`. Left admin-only here to stay faithful to the brief — **Sean to confirm**.
-- **Conversation state model.** A conversation = one phone number. `assignedTo` / `resolved`
-  are stored on the **latest** `whatsapp_incoming` doc for that phone. Documented in the
-  component; revisit if you want a dedicated `whatsapp_conversations` collection.
+| Form | `source` | `showMarketingOption` |
+|---|---|---|
+| Candidate signup | `candidate_signup` | `false` |
+| Employer signup | `employer_signup` | `false` |
+| Partner signup | `partner_signup` | `false` *(marketing deferred per v1.1)* |
+| JD upload (lead capture) | `jd_upload_form` | `false` |
+| Career Fair RSVP | `career_fair_rsvp` | `false` |
+
+For settings pages, drop `SettingsNotificationsSection` with the role:
+`/dashboard/settings` → `candidate`, `/employer/settings` → `employer`,
+`/partner/settings` → `partner`.
+
+## New proxy route (beyond the brief — necessary)
+`POST /proxy/whatsapp/optin` was added because `whatsapp_optin` is **not**
+client-writable (security rules), yet TASK 3/4 capture consent from the browser.
+The route does the Admin SDK write + `auditLogs` entry. Auth: proxy secret (server)
+**or** any signed-in user's Firebase ID token (records their own opt-in).
+
+## Decisions locked (you asked me to drive)
+1. **`whatsapp_incoming` read → `isManager()`** (was admin-only) so the Manager-role
+   Team Inbox loads. *(firestore.rules updated.)*
+2. **Conversation assign/resolve** stored on the latest `whatsapp_incoming` doc per phone.
+3. **Tasks 3/4/5 components authored** from `optin-flow.md` + schema (swap in your own
+   pre-written versions later if they differ).
+4. **`/proxy/whatsapp/optin` route added** (see above).
+5. **Everything stays in SR-WABA** (no separate repo); `sr-proxy/` + `apps/platform-web/`
+   trees mirror the real destination paths for lift-in.
+
+## Known design notes
+
 - **Service window** is derived from the latest inbound timestamp (`< 24h` = open), avoiding
   a client read of `whatsapp_optin`.
 - **8 templates** (v1.1) — the marketing `candidate_job_match_alert` was removed/deferred;

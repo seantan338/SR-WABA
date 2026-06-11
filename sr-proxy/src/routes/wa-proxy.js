@@ -72,6 +72,32 @@ async function requireAuth(req, res, next) {
 }
 
 // ============================================================================
+// MIDDLEWARE — opt-in capture auth
+// Used by POST /optin. whatsapp_optin is NOT client-writable (firestore.rules),
+// so consent writes are funnelled through this server route instead.
+//   Option 1: server-to-server / n8n  → x-proxy-secret header
+//   Option 2: any signed-in user       → Authorization: Bearer <Firebase ID token>
+//             (a user records their own opt-in; no admin/manager role required)
+// ============================================================================
+
+async function requireOptinAuth(req, res, next) {
+  if (req.headers['x-proxy-secret'] === PROXY_SECRET) return next();
+
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const decoded = await admin.auth().verifyIdToken(authHeader.split(' ')[1]);
+      req.authenticatedUser = { uid: decoded.uid };
+      return next();
+    } catch (err) {
+      return res.status(401).json({ error: 'invalid_token' });
+    }
+  }
+
+  return res.status(401).json({ error: 'no_auth' });
+}
+
+// ============================================================================
 // HELPERS
 // ============================================================================
 
@@ -405,6 +431,74 @@ router.post('/send-freeform', requireAuth, async (req, res) => {
   });
 
   return res.json({ ok: true, metaMessageId, logId: logRef.id });
+});
+
+// ============================================================================
+// POST /proxy/whatsapp/optin
+// Records / updates a consent (opt-in / opt-out) event. Called from browser
+// signup forms + settings (TASK 3 / 4) and from server flows. Writes the
+// whatsapp_optin doc via Admin SDK (clients cannot write it directly) and an
+// auditLogs entry. Idempotent per phone (merges).
+// Body: {
+//   phoneE164 | to, userId, source, status?, transactional?, marketingOptin?,
+//   consentText, consentLocale, actorUserId?, actorRole?
+// }
+// ============================================================================
+
+const OPTIN_SOURCES = [
+  'candidate_signup', 'employer_signup', 'partner_signup', 'jd_upload_form',
+  'career_fair_rsvp', 'manual_admin', 'imported_with_consent', 'user_settings',
+];
+
+router.post('/optin', requireOptinAuth, async (req, res) => {
+  const b = req.body || {};
+  const phoneE164 = normalizeE164(b.phoneE164 || b.to);
+  if (!phoneE164 || !/^\+\d{8,15}$/.test(phoneE164)) {
+    return res.status(400).json({ error: 'invalid_phone', received: b.phoneE164 || b.to });
+  }
+
+  const source = OPTIN_SOURCES.includes(b.source) ? b.source : 'manual_admin';
+  // status precedence: explicit status wins; else derive from transactional flag.
+  const status = b.status
+    || (b.transactional === false ? 'pending_verification' : 'active');
+  const marketingOptin = b.marketingOptin === true;
+  const actorUserId = b.actorUserId || req.authenticatedUser?.uid || null;
+
+  const ref = db.collection('whatsapp_optin').doc(phoneE164);
+  const prev = await ref.get();
+  const before = prev.exists ? prev.data() : null;
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const record = {
+    phoneE164,
+    userId: b.userId ?? before?.userId ?? null,
+    status,
+    source,
+    consentText: b.consentText || before?.consentText || '',
+    consentLocale: b.consentLocale || before?.consentLocale || 'en',
+    optinAt: before?.optinAt || now,
+    optoutAt: status === 'opted_out' ? now : (before?.optoutAt || null),
+    lastTemplateAt: before?.lastTemplateAt || null,
+    serviceWindowExpiresAt: before?.serviceWindowExpiresAt || null,
+    marketingOptin,
+    marketingOptinAt: marketingOptin ? now : (before?.marketingOptinAt || null),
+  };
+  await ref.set(record, { merge: true });
+
+  await db.collection('auditLogs').add({
+    actorUserId: actorUserId || 'system',
+    actorRole: b.actorRole || 'system',
+    action: 'whatsapp_optin_changed',
+    entityType: 'whatsapp_optin',
+    entityId: phoneE164,
+    beforeState: before ? { status: before.status, marketingOptin: before.marketingOptin } : null,
+    afterState: { status, marketingOptin },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'] || '',
+    timestamp: now,
+  });
+
+  return res.json({ ok: true, phoneE164, status, marketingOptin });
 });
 
 // ============================================================================

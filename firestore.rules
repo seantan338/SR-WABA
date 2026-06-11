@@ -48,8 +48,10 @@ service cloud.firestore {
     }
 
     match /whatsapp_incoming/{msgId} {
-      // Read: admin only — incoming messages may contain candidate info
-      allow read: if isAdmin();
+      // Read: admin + manager — the Team Inbox (Admin + Manager) reads this
+      // collection live via onSnapshot. (Brief default was admin-only; relaxed
+      // to isManager() so Manager-role inbox actually loads — locked decision.)
+      allow read: if isManager();
       // Create / delete: never from client (Admin SDK only)
       allow create, delete: if false;
       // Update (TASK 6b): Admin + Manager may set Team Inbox assignment / resolution
